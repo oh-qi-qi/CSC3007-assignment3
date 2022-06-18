@@ -25,6 +25,7 @@
     <script src="js/bootstrap.min.js"></script>
     <!-- Load d3.js -->
     <script src="https://d3js.org/d3.v6.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-legend/2.13.0/d3-legend.js"></script>
 
     <script src="https://unpkg.com/d3-v6-tip@1.0.6/build/d3-v6-tip.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/bumbeishvili/d3-tip-for-v6@4/d3-tip.min.css">
@@ -42,6 +43,7 @@
 
         .card .body {
             padding-left: 20px;
+            padding-top: 10px;
         }
 
         .graph-card {
@@ -49,16 +51,9 @@
             margin-bottom: 0px;
         }
 
-        .dropdown-content li>span {
-            color: #026AA6;
-        }
-
-        .select-wrapper input.select-dropdown:hover {
-            border-bottom: 1px solid #026AA6;
-        }
-
-        .select-wrapper input.select-dropdown:focus {
-            border-bottom: 1px solid #026AA6;
+        .zoom-btn {
+            padding: 10px;
+            margin-bottom: 10px;
         }
 
         .container-body {
@@ -78,8 +73,6 @@
         .page-footer {
             background: #026AA6;
         }
-
-
 
         div#my_dataviz {
             overflow: auto;
@@ -147,8 +140,12 @@
             font-family: 'Ubuntu';
         }
 
-        #crime-rate-heading {
+        #heading {
             margin-bottom: -10px;
+        }
+
+        #my_dataviz {
+            margin-bottom: 20px;
         }
 
     </style>
@@ -163,17 +160,18 @@
             <div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">
                 <div id="graph-body" class="card graph-card col-lg-12 col-md-12 col-sm-12 col-xs-12">
                     <div class="header">
-                        <h2 id="crime-rate-heading">Singstat Population 2021 Geospatial</h2>
+                        <h2 id="heading">Singstat Population 2021 Geospatial Choropleth</h2>
                     </div>
 
                     <div class="body">
-                        <div class="input-field col l1 m3 s12">
+                        <div class="input-field col l1 m1 l1">
                             <!-- Initialize a select button -->
-                            <select id="selectButton"></select>
+                            <a class="waves-effect waves-light btn zoom-btn green">Reset Zoom</a>
                         </div>
 
                         <!-- Create a div where the graph will take place -->
                         <div id="my_dataviz" class="col l12 m12 s12"></div>
+                        <div id="tooltip"></div>
                     </div>
                 </div>
             </div>
@@ -191,8 +189,14 @@
     <script>
         $(document).ready(function() {
 
-            let width = 1000,
-                height = 600;
+            var margin = {
+                    top: 20,
+                    right: 10,
+                    bottom: 40,
+                    left: 100
+                },
+                width = 1000
+            height = 500;
 
             let svg = d3.select("#my_dataviz")
                 .append("svg")
@@ -201,27 +205,164 @@
             // Load external data
             Promise.all([d3.json("sgmap.json"), d3.csv("population2021.csv")]).then(data => {
 
-                console.log(data[0]);
                 console.log(data[1]);
+
+                var domain = [50, 100, 500, 1000, 5000, 10000, 25000, 50000];
+                var labels = ["< 50 ",
+                    "50 - 100",
+                    "100 - 500",
+                    "500 - 1000",
+                    "1000 - 5000",
+                    "5000 - 10000",
+                    "10000 - 25000",
+                    "25000 - 50000",
+                    "> 50000"
+                ]
+
+                console.log(domain)
+                var colorScale = d3.scaleThreshold()
+                    .domain(domain)
+                    .range(d3.schemeBlues[9]);
+
+                /* Initialize tooltip */
+                var tip = d3.tip().attr('class', 'd3-tip').html(function(EVENT, d) {
+                    result = data[1].find(s => s["Planning Area"].toLowerCase() == d.properties["Planning Area Name"].toLowerCase() &&
+                        s["Subzone"].toLowerCase() == d.properties["Subzone Name"].toLowerCase());
+
+
+                    if (result == undefined) {
+                        console.log(d.properties)
+                        result = data[1].find(s =>
+                            s["Planning Area"].toLowerCase() == d.properties["Planning Area Name"].toLowerCase());
+
+                    }
+
+                    return "<strong>Planning Area:</strong> <span >" + d.properties["Planning Area Name"] +
+                        "</span><br><strong>Population:</strong> <span >" + result.Population + "</span>" +
+                        "<br><strong>Subzone:</strong> <span >" + d.properties["Subzone Name"] + "</span>";
+                });
+                svg.call(tip);
 
                 // Map and projection
                 var projection = d3.geoMercator()
                     .center([103.851959, 1.290270])
                     .fitExtent([
-                        [20, 20],
-                        [980, 580]
+                        [100, 20],
+                        [980, 480]
                     ], data[0]);
+
 
                 let geopath = d3.geoPath().projection(projection);
 
-                svg.append("g")
+                let mouseOver = function(d) {
+
+                    d3.selectAll(".district")
+                        .transition()
+                        .duration(200)
+                        .style("opacity", .5)
+                        .attr("stroke-width", 1.0);
+
+                    d3.select(this)
+                        .transition()
+                        .duration(200)
+                        .style("opacity", 1)
+                        .style("stroke", "black")
+                        .attr("stroke-width", 2);
+                }
+
+                let mouseLeave = function(d) {
+
+                    d3.selectAll(".district")
+                        .transition()
+                        .duration(200).style("stroke", "gray")
+                        .style("opacity", 1.0)
+                        .attr("stroke-width", 1.0);
+
+                    d3.select(this)
+                        .transition()
+                        .duration(200)
+                        .style("stroke", "gray")
+                        .style("opacity", 1.0)
+                        .attr("stroke-width", 1.0);
+                }
+
+                const zoom = d3.zoom()
+                    .on('zoom', (event) => {
+                        map.attr('transform', event.transform);
+                    })
+                    .scaleExtent([1, 40]);
+
+
+
+                let map = svg.call(zoom).append("g")
                     .attr("id", "districts")
                     .selectAll("path")
                     .data(data[0].features)
                     .enter()
                     .append("path")
                     .attr("d", geopath)
-                    .attr("fill", "black");
+                    // set the color of each country
+                    .attr("fill", function(d) {
+                        result = data[1].find(s => s["Planning Area"].toLowerCase() == d.properties["Planning Area Name"].toLowerCase() &&
+                            s["Subzone"].toLowerCase().includes(d.properties["Subzone Name"].toLowerCase()));
+
+                        if (result != undefined) {
+                            if (result["Population"] == "-") {
+                                return colorScale(0);
+                            } else {
+
+                                return colorScale(result["Population"]);
+                            }
+                        } else {
+
+                            result = data[1].find(s =>
+                                s["Planning Area"].toLowerCase() == d.properties["Planning Area Name"].toLowerCase());
+                            console.log(result)
+                            if (result["Population"] == "-") {
+                                return colorScale(0);
+                            } else {
+
+                                return colorScale(result["Population"]);
+                            }
+                        }
+
+                    })
+                    .style("stroke", "gray")
+                    .style("opacity", 1.0)
+                    .attr("stroke-width", 1.0)
+                    .attr("class", function(d) {
+                        return "district"
+                    })
+                    .on("mouseover", function(event, d) {
+                        tip.show(event, d);
+                        mouseOver.call(this);
+                    })
+                    .on("mouseleave", function(event, d) {
+
+                        mouseLeave.call(this);
+                        tip.hide(event, d)
+                    });
+                var legend_x = 0
+                var legend_y = 15
+
+                svg.append("g")
+                    .attr("class", "legend")
+                    .attr("transform", "translate(" + legend_x + "," + legend_y + ")");
+
+                var legend = d3.legendColor()
+                    .labels(labels)
+                    .title("Population")
+                    .scale(colorScale)
+
+                svg.select(".legend")
+                    .call(legend);
+
+                let button = d3.select('a')
+                button.on('click', function() {
+                    svg.transition().duration(750)
+                        .call(zoom.transform, d3.zoomIdentity)
+                })
+
             })
 
         });
